@@ -914,8 +914,6 @@ public:
 		libraw_processed_image_t* out = nullptr;
 		out = processor_->dcraw_make_mem_image();
 		if (!out) {
-			// If dcraw_make_mem_image() fails or returns null,
-			// we return undefined or throw an error
 			return val::undefined();
 		}
 

@@ -17,7 +17,7 @@ old_library='liblcms2.a'
 inherited_linker_flags=' -pthread'
 
 # Libraries that this one depends upon.
-dependency_libs=' -lm -lpthread'
+dependency_libs=' -L/opt/homebrew/opt/node@18/lib -lm -lpthread'
 
 # Names of additional weak libraries provided by this library
 weak_library_names=''
@@ -25,7 +25,7 @@ weak_library_names=''
 # Version information for liblcms2.
 current=2
 age=0
-revision=18
+revision=19
 
 # Is this an already installed library?
 installed=yes

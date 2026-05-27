@@ -10,8 +10,8 @@ mkdir includes
 #---------------------------------------------------------------------------------
 # 0) Configure and Build LCMS with Emscripten
 #---------------------------------------------------------------------------------
-echo -e "\n==> Cloning LCMS from GitHub..."
-git clone https://github.com/mm2/Little-CMS.git lcms2
+echo -e "\n==> Cloning LCMS from GitHub (lcms2.19.1)..."
+git clone --branch lcms2.19.1 --depth 1 https://github.com/mm2/Little-CMS.git lcms2
 cd lcms2
 command -v libtoolize >/dev/null 2>&1 && libtoolize || glibtoolize # MacOS fallback
 
@@ -30,8 +30,8 @@ cd ..
 #---------------------------------------------------------------------------------
 # 1) Download & Prepare LibRaw
 #---------------------------------------------------------------------------------
-echo -e "\n==> Cloning LibRaw from GitHub..."
-git clone https://github.com/LibRaw/LibRaw.git LibRawSource
+echo -e "\n==> Cloning LibRaw from GitHub (0.22.1)..."
+git clone --branch 0.22.1 --depth 1 https://github.com/LibRaw/LibRaw.git LibRawSource
 
 pushd LibRawSource
 
