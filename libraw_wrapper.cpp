@@ -65,6 +65,7 @@ public:
 		meta.set("raw_height",  processor_->imgdata.sizes.raw_height);
 		meta.set("top_margin",  processor_->imgdata.sizes.top_margin);
 		meta.set("left_margin", processor_->imgdata.sizes.left_margin);
+		meta.set("flip",        flipCode); // EXIF orientation 0..7
 
 		// Basic camera info
 		meta.set("camera_make",  std::string(processor_->imgdata.idata.make));
@@ -95,6 +96,19 @@ public:
 		}
 		gpsData.set("longitude", longitudeArr);
 		gpsData.set("altitude", processor_->imgdata.other.parsed_gps.altitude);
+
+		// GPS reference / hemisphere indicators from LibRaw parsed_gps.
+		// latref/longref are 'N'/'S','E'/'W'; gpsstatus is 'A'/'V'; altref is 0/1.
+		// Emit single-char strings (null when unset) instead of raw char codes.
+		auto charRef = [](char ch) -> val {
+			return ch ? val(std::string(1, ch)) : val::null();
+		};
+		const libraw_gps_info_t &gps = processor_->imgdata.other.parsed_gps;
+		gpsData.set("latref",    charRef(gps.latref));
+		gpsData.set("longref",   charRef(gps.longref));
+		gpsData.set("altref",    static_cast<int>(gps.altref));
+		gpsData.set("gpsstatus", charRef(gps.gpsstatus));
+		gpsData.set("gpsparsed", static_cast<bool>(gps.gpsparsed));
 
 		meta.set("gps_data", gpsData);
 
@@ -133,7 +147,7 @@ public:
 				colorData.set("pre_mul", preMulArr);
 			}
 
-			// c.rgb_cam[3][4], c.cam_xyz[4][3], etc. can also be copied if needed.
+			// Color matrices, ICC profile and DNG color/levels are added below.
 			colorData.set("flash_used",   c.flash_used);
 			colorData.set("canon_ev",	 c.canon_ev);
 			colorData.set("model2",	   std::string(c.model2));
@@ -144,9 +158,195 @@ public:
 			colorData.set("RawDataUniqueID",	std::string(c.RawDataUniqueID));
 			colorData.set("raw_bps",	 (int)c.raw_bps);
 			colorData.set("ExifColorSpace", c.ExifColorSpace);
-			// dng_color, dng_levels, etc. also here if needed
+
+			// Color-science matrices (camera <-> sRGB / XYZ).
+			{
+				val m = val::array();
+				for (int i = 0; i < 3; i++) {
+					val row = val::array();
+					for (int j = 0; j < 4; j++) row.set(j, c.cmatrix[i][j]);
+					m.set(i, row);
+				}
+				colorData.set("cmatrix", m);
+			}
+			{
+				val m = val::array();
+				for (int i = 0; i < 3; i++) {
+					val row = val::array();
+					for (int j = 0; j < 4; j++) row.set(j, c.rgb_cam[i][j]);
+					m.set(i, row);
+				}
+				colorData.set("rgb_cam", m);
+			}
+			{
+				val m = val::array();
+				for (int i = 0; i < 4; i++) {
+					val row = val::array();
+					for (int j = 0; j < 3; j++) row.set(j, c.cam_xyz[i][j]);
+					m.set(i, row);
+				}
+				colorData.set("cam_xyz", m);
+			}
+
+			// Embedded ICC profile (copied into a standalone Uint8Array).
+			if (c.profile && c.profile_length > 0) {
+				val u8 = val::global("Uint8Array").new_(c.profile_length);
+				u8.call<void>("set", val(typed_memory_view(c.profile_length,
+						reinterpret_cast<uint8_t *>(c.profile))));
+				colorData.set("profile", u8);
+			} else {
+				colorData.set("profile", val::null());
+			}
+			colorData.set("profile_length", c.profile_length);
+
+			// DNG color (per-illuminant) + levels (curated subset).
+			{
+				val dngColor = val::array();
+				for (int k = 0; k < 2; k++) {
+					const libraw_dng_color_t &dc = c.dng_color[k];
+					val o = val::object();
+					o.set("illuminant", dc.illuminant);
+					val cm = val::array();
+					for (int i = 0; i < 4; i++) {
+						val row = val::array();
+						for (int j = 0; j < 3; j++) row.set(j, dc.colormatrix[i][j]);
+						cm.set(i, row);
+					}
+					o.set("colormatrix", cm);
+					val fm = val::array();
+					for (int i = 0; i < 3; i++) {
+						val row = val::array();
+						for (int j = 0; j < 4; j++) row.set(j, dc.forwardmatrix[i][j]);
+						fm.set(i, row);
+					}
+					o.set("forwardmatrix", fm);
+					val cal = val::array();
+					for (int i = 0; i < 4; i++) {
+						val row = val::array();
+						for (int j = 0; j < 4; j++) row.set(j, dc.calibration[i][j]);
+						cal.set(i, row);
+					}
+					o.set("calibration", cal);
+					dngColor.set(k, o);
+				}
+				colorData.set("dng_color", dngColor);
+			}
+			{
+				const libraw_dng_levels_t &dl = c.dng_levels;
+				val o = val::object();
+				val wl = val::array();
+				for (int i = 0; i < 4; i++) wl.set(i, dl.dng_whitelevel[i]);
+				o.set("dng_whitelevel", wl);
+				val dcrop = val::array();
+				for (int i = 0; i < 4; i++) dcrop.set(i, dl.default_crop[i]);
+				o.set("default_crop", dcrop);
+				val asn = val::array();
+				for (int i = 0; i < 4; i++) asn.set(i, dl.asshotneutral[i]);
+				o.set("asshotneutral", asn);
+				val ab = val::array();
+				for (int i = 0; i < 4; i++) ab.set(i, dl.analogbalance[i]);
+				o.set("analogbalance", ab);
+				o.set("baseline_exposure",   dl.baseline_exposure);
+				o.set("LinearResponseLimit", dl.LinearResponseLimit);
+				o.set("dng_black",           dl.dng_black);
+				colorData.set("dng_levels", o);
+			}
 
 			meta.set("color_data", colorData);
+
+			// --------------------------------------------------------------------
+			// 2b) Lens info (imgdata.lens)
+			// --------------------------------------------------------------------
+			{
+				const libraw_lensinfo_t &l = processor_->imgdata.lens;
+				val lens = val::object();
+				lens.set("Lens",                 std::string(l.Lens));
+				lens.set("LensMake",             std::string(l.LensMake));
+				lens.set("LensSerial",           std::string(l.LensSerial));
+				lens.set("InternalLensSerial",   std::string(l.InternalLensSerial));
+				lens.set("MinFocal",             l.MinFocal);
+				lens.set("MaxFocal",             l.MaxFocal);
+				lens.set("MaxAp4MinFocal",       l.MaxAp4MinFocal);
+				lens.set("MaxAp4MaxFocal",       l.MaxAp4MaxFocal);
+				lens.set("EXIF_MaxAp",           l.EXIF_MaxAp);
+				lens.set("FocalLengthIn35mmFormat", (int)l.FocalLengthIn35mmFormat);
+
+				const libraw_makernotes_lens_t &lm = l.makernotes;
+				val mk = val::object();
+				mk.set("Lens",        std::string(lm.Lens));
+				mk.set("LensID",      (double)lm.LensID);
+				mk.set("MinFocal",    lm.MinFocal);
+				mk.set("MaxFocal",    lm.MaxFocal);
+				mk.set("MaxAp",       lm.MaxAp);
+				mk.set("MinAp",       lm.MinAp);
+				mk.set("CurFocal",    lm.CurFocal);
+				mk.set("CurAp",       lm.CurAp);
+				mk.set("FocalLengthIn35mmFormat", lm.FocalLengthIn35mmFormat);
+				mk.set("MinFocusDistance", lm.MinFocusDistance);
+				mk.set("LensMount",   (int)lm.LensMount);
+				mk.set("CameraMount", (int)lm.CameraMount);
+				mk.set("body",        std::string(lm.body));
+				lens.set("makernotes", mk);
+
+				meta.set("lens", lens);
+			}
+
+			// --------------------------------------------------------------------
+			// 2c) Shooting info / body serial (imgdata.shootinginfo)
+			// --------------------------------------------------------------------
+			{
+				const libraw_shootinginfo_t &s = processor_->imgdata.shootinginfo;
+				val si = val::object();
+				si.set("DriveMode",          (int)s.DriveMode);
+				si.set("FocusMode",          (int)s.FocusMode);
+				si.set("MeteringMode",       (int)s.MeteringMode);
+				si.set("AFPoint",            (int)s.AFPoint);
+				si.set("ExposureMode",       (int)s.ExposureMode);
+				si.set("ExposureProgram",    (int)s.ExposureProgram);
+				si.set("ImageStabilization", (int)s.ImageStabilization);
+				si.set("BodySerial",         std::string(s.BodySerial));
+				si.set("InternalBodySerial", std::string(s.InternalBodySerial));
+				meta.set("shootinginfo", si);
+			}
+
+			// --------------------------------------------------------------------
+			// 2d) Extra identification params (imgdata.idata)
+			// --------------------------------------------------------------------
+			{
+				const libraw_iparams_t &id = processor_->imgdata.idata;
+				meta.set("software",         std::string(id.software));
+				meta.set("normalized_make",  std::string(id.normalized_make));
+				meta.set("normalized_model", std::string(id.normalized_model));
+				meta.set("maker_index",      id.maker_index);
+				meta.set("raw_count",        id.raw_count);
+				meta.set("dng_version",      id.dng_version);
+				meta.set("is_foveon",        id.is_foveon);
+				meta.set("colors",           id.colors);
+				meta.set("filters",          id.filters);
+				meta.set("cdesc",            std::string(id.cdesc));
+			}
+
+			// --------------------------------------------------------------------
+			// 2e) Extra size params (imgdata.sizes)
+			// --------------------------------------------------------------------
+			{
+				const libraw_image_sizes_t &sz = processor_->imgdata.sizes;
+				meta.set("iwidth",       sz.iwidth);
+				meta.set("iheight",      sz.iheight);
+				meta.set("raw_pitch",    sz.raw_pitch);
+				meta.set("pixel_aspect", sz.pixel_aspect);
+				meta.set("raw_aspect",   sz.raw_aspect);
+				val crops = val::array();
+				for (int k = 0; k < 2; k++) {
+					val cr = val::object();
+					cr.set("cleft",   sz.raw_inset_crops[k].cleft);
+					cr.set("ctop",    sz.raw_inset_crops[k].ctop);
+					cr.set("cwidth",  sz.raw_inset_crops[k].cwidth);
+					cr.set("cheight", sz.raw_inset_crops[k].cheight);
+					crops.set(k, cr);
+				}
+				meta.set("raw_inset_crops", crops);
+			}
 
 			// --------------------------------------------------------------------
 			// 3) Common metadata (imgdata.metadata)
