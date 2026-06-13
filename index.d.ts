@@ -103,14 +103,134 @@ export interface LibRawSettings {
  *
  * Example: `[51, 28, 40.12]` === 51°28'40.12".
  *
- * Note: The EXIF/GPS hemisphere (N/S, E/W) may be provided separately in
- * original EXIF fields; consult the raw file's GPSRef if you require an
- * explicit hemisphere. `altitude` is expressed in metres.
+ * The hemisphere / reference indicators are exposed directly: `latref`
+ * ('N'/'S'), `longref` ('E'/'W') and `altref` (0 = above sea level, 1 = below).
+ * `altitude` is expressed in metres. Reference chars are `null` when unset;
+ * use `gpsparsed` to tell "no GPS in file" from "GPS at 0,0".
  */
 export interface GpsData {
   latitude: [number, number, number];
   longitude: [number, number, number];
   altitude: number;
+  /** Latitude hemisphere: 'N' or 'S'. `null` when unset. */
+  latref: string | null;
+  /** Longitude hemisphere: 'E' or 'W'. `null` when unset. */
+  longref: string | null;
+  /** Altitude reference: 0 = above sea level, 1 = below sea level. */
+  altref: number;
+  /** GPS status: 'A' = valid/active, 'V' = void. `null` when unset. */
+  gpsstatus: string | null;
+  /** True when LibRaw populated parsed GPS data for this file. */
+  gpsparsed: boolean;
+}
+
+/** Default-crop rectangle (`imgdata.sizes.raw_inset_crops`). */
+export interface RawInsetCrop {
+  cleft: number;
+  ctop: number;
+  cwidth: number;
+  cheight: number;
+}
+
+/** Lens information from `imgdata.lens` (present with full metadata). */
+export interface LensInfo {
+  /** Lens model name. */
+  Lens: string;
+  LensMake: string;
+  LensSerial: string;
+  InternalLensSerial: string;
+  MinFocal: number;
+  MaxFocal: number;
+  MaxAp4MinFocal: number;
+  MaxAp4MaxFocal: number;
+  EXIF_MaxAp: number;
+  /** Focal length in 35mm-equivalent terms. */
+  FocalLengthIn35mmFormat: number;
+  /** Maker-note lens block (`imgdata.lens.makernotes`). */
+  makernotes: {
+    Lens: string;
+    LensID: number;
+    MinFocal: number;
+    MaxFocal: number;
+    MaxAp: number;
+    MinAp: number;
+    CurFocal: number;
+    CurAp: number;
+    FocalLengthIn35mmFormat: number;
+    MinFocusDistance: number;
+    LensMount: number;
+    CameraMount: number;
+    body: string;
+  };
+}
+
+/** Normalized shooting info from `imgdata.shootinginfo` (full metadata). */
+export interface ShootingInfo {
+  DriveMode: number;
+  FocusMode: number;
+  MeteringMode: number;
+  AFPoint: number;
+  ExposureMode: number;
+  ExposureProgram: number;
+  ImageStabilization: number;
+  /** Camera body serial number. */
+  BodySerial: string;
+  /** Internal body serial (may be PCB/sensor serial; make/model dependent). */
+  InternalBodySerial: string;
+}
+
+/** Per-illuminant DNG color block (`imgdata.color.dng_color`). */
+export interface DngColor {
+  illuminant: number;
+  /** 4x3 color matrix. */
+  colormatrix: number[][];
+  /** 3x4 forward matrix. */
+  forwardmatrix: number[][];
+  /** 4x4 calibration matrix. */
+  calibration: number[][];
+}
+
+/** Curated DNG levels subset (`imgdata.color.dng_levels`). */
+export interface DngLevels {
+  dng_whitelevel: number[];
+  default_crop: number[];
+  asshotneutral: number[];
+  analogbalance: number[];
+  baseline_exposure: number;
+  LinearResponseLimit: number;
+  dng_black: number;
+}
+
+/** Color data from `imgdata.color` (present with full metadata). */
+export interface ColorData {
+  black: number;
+  data_maximum: number;
+  maximum: number;
+  fmaximum: number;
+  fnorm: number;
+  cam_mul: number[];
+  pre_mul: number[];
+  flash_used: number;
+  canon_ev: number;
+  model2: string;
+  UniqueCameraModel: string;
+  LocalizedCameraModel: string;
+  ImageUniqueID: string;
+  RawDataUniqueID: string;
+  raw_bps: number;
+  ExifColorSpace: number;
+  /** 3x4 camera color matrix. */
+  cmatrix: number[][];
+  /** 3x4 camera-to-sRGB matrix. */
+  rgb_cam: number[][];
+  /** 4x3 camera-to-XYZ matrix. */
+  cam_xyz: number[][];
+  /** Embedded ICC profile bytes, or `null` when none is present. */
+  profile: Uint8Array | null;
+  profile_length: number;
+  dng_color: DngColor[];
+  dng_levels: DngLevels;
+  [key: string]: unknown;
 }
 
 /**
@@ -483,6 +603,8 @@ export interface Metadata {
   raw_height: number;
   top_margin: number;
   left_margin: number;
+  /** EXIF orientation (0..7). */
+  flip: number;
   camera_make: string;
   camera_model: string;
   iso_speed: number;
@@ -497,8 +619,32 @@ export interface Metadata {
   thumb_height: number;
   thumb_format: 'unknown' | 'jpeg' | 'bitmap' | 'bitmap16' | 'layer' | 'rollei' | 'h265';
   gps_data?: GpsData;
-  color_data?: Record<string, unknown>;
+  color_data?: ColorData;
   metadata_common?: MetadataCommon;
+  /** Lens info (`imgdata.lens`) — present with full metadata. */
+  lens?: LensInfo;
+  /** Normalized shooting info & body serials — present with full metadata. */
+  shootinginfo?: ShootingInfo;
+  // Extra identification params (imgdata.idata) — present with full metadata.
+  software?: string;
+  normalized_make?: string;
+  normalized_model?: string;
+  maker_index?: number;
+  raw_count?: number;
+  dng_version?: number;
+  is_foveon?: number;
+  colors?: number;
+  /** Bayer/X-Trans filter pattern bitmask. */
+  filters?: number;
+  /** Color channel description, e.g. "RGBG". */
+  cdesc?: string;
+  // Extra size params (imgdata.sizes) — present with full metadata.
+  iwidth?: number;
+  iheight?: number;
+  raw_pitch?: number;
+  pixel_aspect?: number;
+  raw_aspect?: number;
+  raw_inset_crops?: RawInsetCrop[];
   canon?: CanonMetadata;
   nikon?: NikonMetadata;
   fuji?: FujiMetadata;
