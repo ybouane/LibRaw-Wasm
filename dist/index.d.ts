@@ -755,4 +755,10 @@ export default class LibRaw {
    * Fetch the embedded thumbnail preview, when available.
    */
   thumbnailData(): Promise<LibRawThumbnailData | undefined>;
+
+  /**
+   * Terminate the underlying worker and reject any in-flight calls.
+   * The instance is unusable afterwards; create a new one to decode again.
+   */
+  dispose(): void;
 }
