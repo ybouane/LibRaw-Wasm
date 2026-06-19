@@ -19,7 +19,7 @@ function isTypedArray(obj) {
 }
 
 self.onmessage = async (event) => {
-	const {fn, args} = event.data;
+	const {id, fn, args} = event.data;
 	try {
 		await ready;
 		const out = raw[fn](...args);
@@ -29,8 +29,8 @@ self.onmessage = async (event) => {
 			if (isTypedArray(value))
 				transferList.push(value.buffer);
 		}
-		self.postMessage({out}, transferList);
+		self.postMessage({id, out}, transferList);
 	} catch (err) {
-		self.postMessage({error: err.message});
+		self.postMessage({id, error: err.message});
 	}
 };
