@@ -1,0 +1,61 @@
+name: CI
+
+# Build the wasm from source and run the full test suite on every PR.
+# This is verification only — it never commits. Built artifacts are regenerated
+# and committed to main by build-artifacts.yml when the PR merges, so contributors
+# do not need to build or commit any binaries themselves.
+
+on:
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # needed to diff against the PR base
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.7
+          actions-cache-folder: emsdk-cache
+
+      - name: Force static-lib rebuild if the build script changed
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$BASE" ] && git cat-file -e "$BASE" 2>/dev/null \
+             && git diff --name-only "$BASE" HEAD | grep -qx 'compileLibraw.sh'; then
+            echo "compileLibraw.sh changed -> forcing LCMS/LibRaw rebuild"
+            echo "FORCE_LIBS=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Notice if PR modifies built artifacts
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          if [ -n "$BASE" ] && git cat-file -e "$BASE" 2>/dev/null \
+             && git diff --name-only "$BASE" HEAD | grep -qE '^(dist/|libraw\.wasm|libraw\.js|libs/|includes/)'; then
+            echo "::warning::This PR modifies built artifacts (dist/, libraw.wasm, …). You don't need to — CI rebuilds and commits them on merge."
+          fi
+
+      - run: npm ci
+
+      - name: Build wasm
+        run: bash compileLibraw.sh
+
+      - name: Unit test (worker reply routing)
+        run: npm test
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Integration test (real decode)
+        run: npm run test:integration

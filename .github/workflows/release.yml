@@ -1,0 +1,64 @@
+name: Release
+
+# On a v* tag: build the wasm from source, run the tests, publish to npm with
+# provenance via OIDC trusted publishing (no NPM_TOKEN secret required — the
+# package's Trusted Publisher is configured on npmjs.com), and cut a GitHub
+# Release with the built artifacts attached.
+#
+# Cut a release with:  npm version <patch|minor|major> && git push --follow-tags
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # create the GitHub Release
+  id-token: write # OIDC for npm provenance / trusted publishing
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y autoconf automake libtool
+
+      - name: Set up Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.7
+          actions-cache-folder: emsdk-cache
+
+      - run: npm ci
+
+      - name: Build wasm from source
+        run: bash compileLibraw.sh
+
+      - name: Unit test
+        run: npm test
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Integration test
+        run: npm run test:integration
+
+      - name: Upgrade npm (trusted publishing needs npm >= 11.5)
+        run: npm install -g npm@latest
+
+      - name: Publish to npm (provenance via OIDC)
+        run: npm publish --provenance --access public
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            libraw.wasm
+            dist/**

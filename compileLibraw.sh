@@ -2,68 +2,78 @@
 
 set -e
 
-rm -rf libs includes LibRawSource lcms2 2>/dev/null || true
-mkdir libs
-mkdir includes
+#---------------------------------------------------------------------------------
+# Stage A: Build the LCMS + LibRaw static libraries with Emscripten.
+#
+# These only change when the pinned versions (or this script) change, so when
+# libs/ is already populated we reuse it and jump straight to linking the wrapper.
+# Set FORCE_LIBS=1 to force a full rebuild (CI sets this automatically whenever
+# compileLibraw.sh itself changes).
+#---------------------------------------------------------------------------------
+if [ "${FORCE_LIBS:-0}" = "1" ] || [ ! -f libs/libraw.a ] || [ ! -f libs/liblcms2.a ]; then
+	echo -e "\n==> Building LCMS + LibRaw static libraries from source..."
+	rm -rf libs includes LibRawSource lcms2 2>/dev/null || true
+	mkdir libs
+	mkdir includes
 
+	#-------------------------------------------------------------------------------
+	# 0) Configure and Build LCMS with Emscripten
+	#-------------------------------------------------------------------------------
+	echo -e "\n==> Cloning LCMS from GitHub (lcms2.19.1)..."
+	git clone --branch lcms2.19.1 --depth 1 https://github.com/mm2/Little-CMS.git lcms2
+	cd lcms2
+	command -v libtoolize >/dev/null 2>&1 && libtoolize || glibtoolize # MacOS fallback
+
+	autoreconf -fi
+	# 2) Configure and make with Emscripten
+	emconfigure ./configure --host=wasm32-unknown-emscripten \
+	  --disable-shared
+	emmake make -j8
+
+	cp -R src/.libs/* ../libs/
+	cp -R include/* ../includes/
+	cd ..
+
+	#-------------------------------------------------------------------------------
+	# 1) Download & Prepare LibRaw
+	#-------------------------------------------------------------------------------
+	echo -e "\n==> Cloning LibRaw from GitHub (0.22.1)..."
+	git clone --branch 0.22.1 --depth 1 https://github.com/LibRaw/LibRaw.git LibRawSource
+
+	pushd LibRawSource
+
+	echo -e "\n==> Generating configure script from configure.ac..."
+	# Generate ./configure from configure.ac
+	command -v libtoolize >/dev/null 2>&1 && libtoolize || glibtoolize # MacOS fallback
+	autoreconf -i
+
+	#-------------------------------------------------------------------------------
+	# 2) Configure and Build LibRaw with Emscripten
+	#-------------------------------------------------------------------------------
+	echo -e "\n==> Configuring LibRaw with Emscripten..."
+	emconfigure ./configure \
+	  --host=wasm32-unknown-emscripten \
+	  --enable-openmp \
+	  --enable-lcms \
+	  --disable-shared \
+	  --disable-examples \
+	  CFLAGS="-O3 -flto -ffast-math -msimd128 -DNDEBUG -DUSE_LCMS2 -I../includes" \
+	  CXXFLAGS="-O3 -flto -ffast-math -msimd128 -DNDEBUG -DUSE_LCMS2 -I../includes" \
+	  LDFLAGS="-s USE_PTHREADS=1 -lpthread -L../libs/ -llcms2"
+
+	echo -e "\n==> Building LibRaw..."
+	emmake make -j8
+
+	# Copy artifacts out of the source folder for convenience
+	cp -R lib/.libs/* ../libs/
+	cp -R libraw ../includes/
+	popd  # out of LibRawSource
+else
+	echo -e "\n==> Reusing existing libs/ + includes/ (set FORCE_LIBS=1 to rebuild them)."
+fi
 
 #---------------------------------------------------------------------------------
-# 0) Configure and Build LCMS with Emscripten
-#---------------------------------------------------------------------------------
-echo -e "\n==> Cloning LCMS from GitHub (lcms2.19.1)..."
-git clone --branch lcms2.19.1 --depth 1 https://github.com/mm2/Little-CMS.git lcms2
-cd lcms2
-command -v libtoolize >/dev/null 2>&1 && libtoolize || glibtoolize # MacOS fallback
-
-autoreconf -fi
-# 2) Configure and make with Emscripten
-emconfigure ./configure --host=wasm32-unknown-emscripten \
-  --disable-shared
-emmake make -j8
-
-cp -R src/.libs/* ../libs/
-cp -R include/* ../includes/
-cd ..
-
-
-
-#---------------------------------------------------------------------------------
-# 1) Download & Prepare LibRaw
-#---------------------------------------------------------------------------------
-echo -e "\n==> Cloning LibRaw from GitHub (0.22.1)..."
-git clone --branch 0.22.1 --depth 1 https://github.com/LibRaw/LibRaw.git LibRawSource
-
-pushd LibRawSource
-
-echo -e "\n==> Generating configure script from configure.ac..."
-# Generate ./configure from configure.ac
-command -v libtoolize >/dev/null 2>&1 && libtoolize || glibtoolize # MacOS fallback
-autoreconf -i
-
-#---------------------------------------------------------------------------------
-# 2) Configure and Build LibRaw with Emscripten
-#---------------------------------------------------------------------------------
-echo -e "\n==> Configuring LibRaw with Emscripten..."
-emconfigure ./configure \
-  --host=wasm32-unknown-emscripten \
-  --enable-openmp \
-  --enable-lcms \
-  --disable-shared \
-  --disable-examples \
-  CFLAGS="-O3 -flto -ffast-math -msimd128 -DNDEBUG -DUSE_LCMS2 -I../includes" \
-  CXXFLAGS="-O3 -flto -ffast-math -msimd128 -DNDEBUG -DUSE_LCMS2 -I../includes" \
-  LDFLAGS="-s USE_PTHREADS=1 -lpthread -L../libs/ -llcms2"
-
-echo -e "\n==> Building LibRaw..."
-emmake make -j8
-
-# Copy artifacts out of the source folder for convenience
-cp -R lib/.libs/* ../libs/
-cp -R libraw ../includes/
-popd  # out of LibRawSource
-
-#---------------------------------------------------------------------------------
-# 3) Build the final WASM from libraw_wrapper.cpp
+# Stage B: Build the final WASM from libraw_wrapper.cpp (always runs).
 #---------------------------------------------------------------------------------
 echo -e "\n==> Building libraw.js + libraw.wasm..."
 emcc \
