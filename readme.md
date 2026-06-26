@@ -27,10 +27,16 @@ const meta = await raw.metadata(/* fullOutput=false */);
 console.log('Metadata:', meta);
 output.innerText = JSON.stringify(meta, null, 4);
 
-// Fetch the decoded image data (RGB pixels)
-const imageData = await raw.imageData();
-console.log('Image data:', imageData);
-console.log('Image data length:', imageData.length);
+// Fetch the decoded image data (RGB pixels).
+// imageData() rejects if decoding fails (e.g. a compression format this build
+// can't decode), so wrap it in try/catch when handling untrusted files.
+try {
+	const imageData = await raw.imageData();
+	console.log('Image data:', imageData);
+	console.log('Image data length:', imageData.data.length);
+} catch (err) {
+	console.error('Failed to decode image:', err);
+}
 
 // Fetch the raw, undebayered sensor data (16-bit mosaic, no demosaicing)
 const rawImageData = await raw.rawImageData();

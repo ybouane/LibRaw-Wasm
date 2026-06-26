@@ -743,6 +743,11 @@ export default class LibRaw {
 
   /**
    * Fetch processed RAW image data for the opened file.
+   *
+   * The returned promise **rejects** if decoding fails — for example an
+   * `unpack()`/`dcraw_process()` error, or a compression format whose decoder is
+   * unavailable in this build. Wrap the call in `try/catch` (or `.catch()`) to
+   * handle those cases rather than assuming it always resolves.
    */
   imageData(): Promise<LibRawImageData | undefined>;
 

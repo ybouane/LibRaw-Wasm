@@ -51,15 +51,29 @@ if [ "${FORCE_LIBS:-0}" = "1" ] || [ ! -f libs/libraw.a ] || [ ! -f libs/liblcms
 	# 2) Configure and Build LibRaw with Emscripten
 	#-------------------------------------------------------------------------------
 	echo -e "\n==> Configuring LibRaw with Emscripten..."
+	# JPEG support (USE_JPEG / USE_JPEG8) is what enables lossy DNG (Adobe lossy /
+	# baseline-JPEG, compression 34892) and Kodak JPEG RAW decoding — without it
+	# LibRaw compiles lossy_dng_load_raw()/kodak_jpeg_load_raw() as empty stubs and
+	# imageData() silently returns nothing (see issue #27).
+	#
+	# LibRaw's configure enables jpeg by default but only defines USE_JPEG when its
+	# AC_CHECK_LIB([jpeg], jpeg_mem_src) + AC_CHECK_HEADERS([jpeglib.h]) both pass.
+	# Under Emscripten those live in the libjpeg port, so we surface them with
+	# -sUSE_LIBJPEG=1 (adds the jpeglib.h include path at compile time and the jpeg
+	# archive at link time) and additionally force -DUSE_JPEG -DUSE_JPEG8 so the
+	# decoder code is compiled into libraw.a regardless of the configure link probe.
+	# The jpeg symbols themselves are resolved later when Stage B links the wrapper
+	# with -s USE_LIBJPEG=1.
 	emconfigure ./configure \
 	  --host=wasm32-unknown-emscripten \
 	  --enable-openmp \
 	  --enable-lcms \
+	  --enable-jpeg \
 	  --disable-shared \
 	  --disable-examples \
-	  CFLAGS="-O3 -flto -ffast-math -msimd128 -DNDEBUG -DUSE_LCMS2 -I../includes" \
-	  CXXFLAGS="-O3 -flto -ffast-math -msimd128 -DNDEBUG -DUSE_LCMS2 -I../includes" \
-	  LDFLAGS="-s USE_PTHREADS=1 -lpthread -L../libs/ -llcms2"
+	  CFLAGS="-O3 -flto -ffast-math -msimd128 -DNDEBUG -DUSE_LCMS2 -DUSE_JPEG -DUSE_JPEG8 -sUSE_LIBJPEG=1 -I../includes" \
+	  CXXFLAGS="-O3 -flto -ffast-math -msimd128 -DNDEBUG -DUSE_LCMS2 -DUSE_JPEG -DUSE_JPEG8 -sUSE_LIBJPEG=1 -I../includes" \
+	  LDFLAGS="-s USE_PTHREADS=1 -sUSE_LIBJPEG=1 -lpthread -L../libs/ -llcms2"
 
 	echo -e "\n==> Building LibRaw..."
 	emmake make -j8

@@ -22,7 +22,7 @@ const FIXTURE = 'example-sony.ARW';
 const MIME = {
 	'.js': 'text/javascript', '.mjs': 'text/javascript', '.wasm': 'application/wasm',
 	'.html': 'text/html', '.json': 'application/json', '.map': 'application/json',
-	'.arw': 'application/octet-stream',
+	'.arw': 'application/octet-stream', '.dng': 'application/octet-stream',
 };
 
 const PAGE = `<!doctype html><meta charset=utf-8><title>decode</title>
@@ -62,9 +62,38 @@ const withTimeout = (p, ms, label) => Promise.race([
 		let disposedRejected = false;
 		await inflight.catch(() => { disposedRejected = true; });
 
+		// Lossy DNG (Adobe lossy / baseline-JPEG, compression 34892, LinearRaw) — issue #27.
+		// This path needs libjpeg linked in: with the old USE_JPEG-off build lossy_dng_load_raw()
+		// was an empty stub and imageData() resolved with nothing. The fixture encodes R ramping
+		// left->right and G ramping top->bottom, so we assert the gradient survived the JPEG
+		// round-trip — proving libjpeg actually decoded the tile, not just "non-empty".
+		const dngBuf = await (await fetch('./test/integration/lossy.dng')).arrayBuffer();
+		const dngRaw = new LibRaw();
+		await dngRaw.open(new Uint8Array(dngBuf.slice(0)), { useCameraWb: true, outputBps: 8 });
+		let dngImg = null, dngErr = null;
+		try { dngImg = await dngRaw.imageData(); } catch (e) { dngErr = String(e && e.message || e); }
+		let dngStats = null;
+		if (dngImg && dngImg.data && dngImg.width && dngImg.height) {
+			const W = dngImg.width, H = dngImg.height, C = dngImg.colors || 3, d = dngImg.data;
+			const tx = Math.floor(W / 3), ty = Math.floor(H / 3);
+			let rL = 0, rR = 0, gT = 0, gB = 0, nz = 0;
+			for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+				const i = (y * W + x) * C;
+				if (d[i] || d[i + 1] || d[i + 2]) nz++;
+				if (x < tx) rL += d[i]; else if (x >= W - tx) rR += d[i];
+				if (y < ty) gT += d[i + 1]; else if (y >= H - ty) gB += d[i + 1];
+			}
+			const nx = tx * H, ny = ty * W;
+			dngStats = { rLeft: rL / nx, rRight: rR / nx, gTop: gT / ny, gBottom: gB / ny, nonzero: nz };
+		}
+		dngRaw.dispose();
+
 		window.__RESULT = {
 			ok: true,
 			model: meta?.camera_model,
+			dngW: dngImg?.width, dngH: dngImg?.height, dngColors: dngImg?.colors,
+			dngLen: dngImg?.data?.length, dngCtor: dngImg?.data?.constructor?.name,
+			dngErr, dngStats,
 			tsYear: meta?.timestamp instanceof Date ? meta.timestamp.getUTCFullYear() : null,
 			tsIso: meta?.timestamp instanceof Date ? meta.timestamp.toISOString() : null,
 			lens: meta?.lens?.Lens,
@@ -139,6 +168,16 @@ if (r && r.ok) {
 	check(r.concMeta === 'ILME-FX30' && r.concImgW === 3120, 'concurrent Promise.all resolved with correct payloads');
 	check(r.reHalfW === 3120 && r.reFullW === 6240, `instance reuse reflects new settings (half=${r.reHalfW}, full=${r.reFullW})`);
 	check(r.disposedRejected, 'dispose() rejected the in-flight call');
+
+	// Lossy DNG decode (issue #27) — fails (empty/throws) on a build without libjpeg.
+	const s = r.dngStats;
+	check(r.dngErr == null, `lossy DNG imageData did not throw (err=${r.dngErr})`);
+	check(r.dngW === 256 && r.dngH === 168, `lossy DNG dims 256x168 (got ${r.dngW}x${r.dngH})`);
+	check(r.dngLen === 256 * 168 * 3, `lossy DNG data length 129024 (got ${r.dngLen})`);
+	check(r.dngCtor === 'Uint8Array', `lossy DNG data is Uint8Array (got ${r.dngCtor})`);
+	check(s && s.nonzero > 0, `lossy DNG decoded non-empty pixels (nonzero=${s?.nonzero})`);
+	check(s && s.rRight > s.rLeft + 20, `lossy DNG red gradient L->R (L=${s?.rLeft?.toFixed(1)} R=${s?.rRight?.toFixed(1)})`);
+	check(s && s.gBottom > s.gTop + 20, `lossy DNG green gradient T->B (T=${s?.gTop?.toFixed(1)} B=${s?.gBottom?.toFixed(1)})`);
 }
 
 const failed = checks.filter((c) => !c.ok);

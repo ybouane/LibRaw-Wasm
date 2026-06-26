@@ -1111,11 +1111,22 @@ public:
 			}
 		}
 
-		// Make a processed image in memory
-		libraw_processed_image_t* out = nullptr;
-		out = processor_->dcraw_make_mem_image();
+		// Make a processed image in memory. Pass an errcode pointer so that a
+		// failed or unavailable decoder surfaces an explicit error instead of
+		// silently resolving with nothing — e.g. a compression format this build
+		// cannot decode (see issue #27).
+		int memErr = 0;
+		libraw_processed_image_t* out = processor_->dcraw_make_mem_image(&memErr);
 		if (!out) {
-			return val::undefined();
+			std::string msg = "LibRaw: dcraw_make_mem_image() produced no image";
+			if (memErr != 0) {
+				msg += std::string(" (code ") + std::to_string(memErr) + ": " +
+				       libraw_strerror(memErr) + ")";
+			} else {
+				msg += " — the decoder for this file's compression format may be "
+				       "unavailable in this build";
+			}
+			throw std::runtime_error(msg);
 		}
 
 		// Prepare a JS object to hold all the result fields
