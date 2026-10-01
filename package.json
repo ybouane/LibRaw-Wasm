@@ -12,7 +12,7 @@
 		"example": "python -m http.server 9000",
 		"build": "node build.js",
 		"compile": "bash compileLibraw.sh",
-		"test": "node test/worker-reply-routing.test.mjs",
+		"test": "node test/worker-reply-routing.test.mjs && node test/threads-option.test.mjs && node test/worker-core.test.mjs && node test/worker-error.test.mjs",
 		"test:integration": "node test/integration/decode.test.mjs"
 	},
 	"files": [

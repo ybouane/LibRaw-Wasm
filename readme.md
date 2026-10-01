@@ -132,7 +132,7 @@ Both builds compile LibRaw with IEEE-strict floating point, so for a given LibRa
 ## Local development
  - If you're making changes in the CPP wrapper, launch `compileLibraw.sh` (or `npm run compile`). It builds the LCMS, LibRaw (single-threaded and OpenMP) and portable-math static libs once into `libs/`/`includes/` and reuses them on subsequent runs; set `FORCE_LIBS=1` to rebuild them (e.g. after changing pinned versions or `portable-math/`).
  - If you're launching it on MacOS, make sure that emscripten is installed (e.g. `brew install emscripten`) + build dependencies are insalled (e.g. `brew install autoconf automake libtool`). The pinned toolchain is Emscripten 6.0.4 (the multi-threaded build needs the wasm32 OpenMP runtime that Emscripten ships since 6.0.3).
- - Tests: `npm test` runs the fast unit tests (worker reply routing, the `threads` option); `npm run test:integration` decodes `example-sony.ARW` in headless Chromium, including the multi-threaded build on an isolated and a non-isolated page (run `npx playwright install chromium` first).
+ - Tests: `npm test` runs the fast unit tests (worker reply routing, the `threads` option, its thread count in the worker, and a worker that fails to load); `npm run test:integration` decodes `example-sony.ARW` in headless Chromium, including the multi-threaded build on an isolated and a non-isolated page, with AHD and PPG demosaicing and with wavelet denoising (run `npx playwright install chromium` first).
 
 ## CI/CD
  - **PRs** (`ci.yml`): the wasm is built from source and the full test suite runs on every pull request — so you do **not** need to build or commit any binaries (`dist/`, `libraw.wasm`, …). CI regenerates them.

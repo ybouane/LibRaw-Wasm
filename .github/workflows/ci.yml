@@ -51,7 +51,7 @@ jobs:
       - name: Build wasm
         run: bash compileLibraw.sh
 
-      - name: Unit test (worker reply routing)
+      - name: Unit tests
         run: npm test
 
       - name: Install Chromium
