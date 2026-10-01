@@ -10,7 +10,24 @@
 // LibRaw includes
 #include "libraw/libraw.h"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 using namespace emscripten;
+
+// Sets the size of the OpenMP team LibRaw's parallel regions use and returns
+// it. The worker sets it to its pthread pool size + 1 before any decode; the
+// single-threaded build always runs on 1 thread.
+int setThreadCount(int threads) {
+#ifdef _OPENMP
+	omp_set_num_threads(threads < 1 ? 1 : threads);
+	return omp_get_max_threads();
+#else
+	(void)threads;
+	return 1;
+#endif
+}
 
 class WASMLibRaw {
 public:
@@ -1105,7 +1122,33 @@ public:
 				throw std::runtime_error("LibRaw: unpack() failed with code " + std::to_string(ret));
 			}
 
+#ifdef _OPENMP
+			// LibRaw's parallel decoders, raw copy, wavelet denoise and PPG/AHD
+			// demosaics write disjoint pixels, so their output does not depend
+			// on the thread count. Its X-Trans demosaic, its X-Trans half-size
+			// copy and the DHT demosaic (quality 11) let threads read or
+			// overwrite pixels other threads are writing, so for any colour
+			// filter array other than Bayer (LibRaw filters 1..999; non-CFA
+			// images, filters == 0, are fine), or with DHT, develop on one
+			// thread: the output then matches the single-threaded build
+			// exactly. (Wavelet denoise, threshold > 0, is the one place where
+			// the two builds differ: LibRaw's OpenMP variant of
+			// wavelet_denoise() does part of its arithmetic in double. It is
+			// still the same at every thread count.)
+			const unsigned filters = processor_->imgdata.idata.filters;
+			const bool threadSafeDevelop = (filters == 0 || filters >= 1000) &&
+			                               processor_->imgdata.params.user_qual != 11;
+			const int team = omp_get_max_threads();
+			if (!threadSafeDevelop) {
+				omp_set_num_threads(1);
+			}
 			ret = processor_->dcraw_process();
+			if (!threadSafeDevelop) {
+				omp_set_num_threads(team);
+			}
+#else
+			ret = processor_->dcraw_process();
+#endif
 			if (ret != LIBRAW_SUCCESS) {
 				throw std::runtime_error("LibRaw: dcraw_process() failed with code " + std::to_string(ret));
 			}
@@ -1469,6 +1512,7 @@ private:
 
 EMSCRIPTEN_BINDINGS(libraw_module) {
 	register_vector<uint8_t>("VectorUint8");
+	function("setThreadCount", &setThreadCount);
 	class_<WASMLibRaw>("LibRaw")
 		.constructor<>()
 		.function("open", &WASMLibRaw::open)

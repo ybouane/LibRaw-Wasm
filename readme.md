@@ -94,21 +94,40 @@ console.log('Raw sensor data:', rawImageData); // { raw_width, raw_height, width
 ```
 
 
+# Multi-threaded decoding
+LibRaw's default demosaic (AHD) and several of its decoders can run on more than one thread. The package ships a second, multi-threaded build for this; pass `threads` to use it:
+
+```javascript
+const raw = new LibRaw({ threads: 4 }); // or 'auto': min(navigator.hardwareConcurrency, 8)
+await raw.open(new Uint8Array(fileBuffer), settings);
+const imageData = await raw.imageData();
+console.log(await raw.runtimeInfo()); // { threaded: true, crossOriginIsolated: true, poolSize: 3, threads: 4 }
+raw.dispose(); // also stops the instance's thread pool
+```
+
+- **Cross-origin isolation.** The decoder shares its memory with a pool of nested workers, which browsers only allow on [cross-origin isolated](https://developer.mozilla.org/en-US/docs/Web/API/Window/crossOriginIsolated) pages (`Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp`) that expose `SharedArrayBuffer` (some webviews, such as WKWebView on macOS, report isolation without it). Elsewhere the same build decodes on one thread.
+- **Thread count.** `'auto'` means `min(navigator.hardwareConcurrency, 8)`; a finite number is floored and clamped to `1…LibRaw.features.maxThreads` (16); `null` or `undefined` keep the single-threaded build; anything else throws a `TypeError`. Each instance starts its pool of `threads - 1` workers before its first call completes, so size it to what you need.
+- **Memory.** The multi-threaded build can grow to 4 GB (the single-threaded build: 2 GB), which should be enough for files of about 100 MP (not tested yet).
+- **Same pixels.** Both builds decode a file to exactly the same image, whatever the thread count (see below), with one exception: with wavelet denoising (`threshold` > 0), LibRaw's OpenMP version of `wavelet_denoise()` does part of its arithmetic in double instead of float, so the multi-threaded build differs there from the single-threaded one by a few pixels (it is still the same at every thread count).
+- **Feature detection.** `LibRaw.features?.threads` is `true` in versions that ship the multi-threaded build (older versions ignore the constructor argument).
+- **Bundlers.** The worker and its pool workers are created with `new Worker(new URL(..., import.meta.url))`, which Vite and webpack follow. Both builds are referenced statically, so a bundle contains the multi-threaded worker, its glue and its ~1.6 MB wasm even when `threads` is never passed; they are only fetched when it is. The two builds' pool workers have different names (`em-pthread` and `em-pthread-mt`), so webpack keeps them in separate chunks.
+
 # Deterministic output
-LibRaw is compiled with IEEE-strict floating point, so for a given LibRaw version and settings LibRaw's own processing gives the same pixels whatever the Emscripten version or the machine that built the package (checked: the wasm build matches native arm64 and x86_64 clang builds of the same sources).
+Both builds compile LibRaw with IEEE-strict floating point, so for a given LibRaw version and settings LibRaw's own processing gives the same pixels whatever the Emscripten version, the machine that built the package, or the thread count (checked: the wasm build matches native arm64 and x86_64 clang builds of the same sources).
 - No `-ffast-math` (it lets the compiler reorder arithmetic and assume there are no NaNs or infinities) and no fused multiply-add contraction (`-ffp-contract=off`).
 - LibRaw's calls to `pow`, `powf`, `exp`, `log`, `logf` and `cos` (its gamma curve, the CIELab table AHD uses, and a few others) go to [unmodified copies of musl's implementations](portable-math/README.md) instead of the toolchain's libm, so neither a libm update nor the compiler's folding or rewriting of those calls changes the result.
-- Two optional parts still come from the toolchain: colour management with `cameraProfile`/`outputProfile` (LCMS2 uses Emscripten's libm) and lossy DNG decoding (Emscripten's libjpeg port).
+- LibRaw's parallel regions write disjoint pixels, so the thread count does not change the result — except in the X-Trans (Fuji) demosaic, the X-Trans half-size path and the DHT demosaic (`userQual: 11`), where threads read or overwrite pixels other threads are writing. For those (any colour filter array other than Bayer, or DHT), the multi-threaded build develops the image on one thread; its decoders still run in parallel.
+- Two optional parts still come from the toolchain: colour management with `cameraProfile`/`outputProfile` (LCMS2 uses Emscripten's libm) and lossy DNG decoding (Emscripten's libjpeg port). With wavelet denoising (`threshold` > 0) the two builds differ from each other, see above.
 - Deflate-compressed DNGs are not supported (`--disable-zlib`), as in earlier versions. This is now pinned, so that a build does not depend on what the build machine's Emscripten cache contains.
 
 # Additional Notes
-- **Performance:** Decoding large RAW files in the browser can be CPU-intensive.
+- **Performance:** Decoding large RAW files in the browser can be CPU-intensive. See [Multi-threaded decoding](#multi-threaded-decoding).
 - **Memory:** WebAssembly modules can allocate a significant amount of memory. Check your environment’s limits if you work with very large files.
 
 ## Local development
- - If you're making changes in the CPP wrapper, launch `compileLibraw.sh` (or `npm run compile`). It builds the LCMS, LibRaw and portable-math static libs once into `libs/`/`includes/` and reuses them on subsequent runs; set `FORCE_LIBS=1` to rebuild them (e.g. after changing pinned versions or `portable-math/`).
- - If you're launching it on MacOS, make sure that emscripten is installed (e.g. `brew install emscripten`) + build dependencies are insalled (e.g. `brew install autoconf automake libtool`). The pinned toolchain is Emscripten 5.0.7.
- - Tests: `npm test` runs the fast worker reply-routing unit test; `npm run test:integration` decodes `example-sony.ARW` in headless Chromium (run `npx playwright install chromium` first).
+ - If you're making changes in the CPP wrapper, launch `compileLibraw.sh` (or `npm run compile`). It builds the LCMS, LibRaw (single-threaded and OpenMP) and portable-math static libs once into `libs/`/`includes/` and reuses them on subsequent runs; set `FORCE_LIBS=1` to rebuild them (e.g. after changing pinned versions or `portable-math/`).
+ - If you're launching it on MacOS, make sure that emscripten is installed (e.g. `brew install emscripten`) + build dependencies are insalled (e.g. `brew install autoconf automake libtool`). The pinned toolchain is Emscripten 6.0.4 (the multi-threaded build needs the wasm32 OpenMP runtime that Emscripten ships since 6.0.3).
+ - Tests: `npm test` runs the fast unit tests (worker reply routing, the `threads` option); `npm run test:integration` decodes `example-sony.ARW` in headless Chromium, including the multi-threaded build on an isolated and a non-isolated page (run `npx playwright install chromium` first).
 
 ## CI/CD
  - **PRs** (`ci.yml`): the wasm is built from source and the full test suite runs on every pull request — so you do **not** need to build or commit any binaries (`dist/`, `libraw.wasm`, …). CI regenerates them.

@@ -19,6 +19,8 @@ on:
       - 'build.js'
       - 'index.js'
       - 'worker.js'
+      - 'worker-threaded.js'
+      - 'worker-core.js'
       - 'index.d.ts'
   workflow_dispatch:
     inputs:
@@ -52,7 +54,7 @@ jobs:
       - name: Set up Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 5.0.7
+          version: 6.0.4
           actions-cache-folder: emsdk-cache
 
       - name: Decide whether to rebuild static libs
@@ -85,7 +87,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dist libraw.wasm libraw.js libs includes
+          git add dist libraw.wasm libraw.js libraw-threaded.wasm libraw-threaded.js libs includes
           if git diff --cached --quiet; then
             echo "No artifact changes to commit."
           else

@@ -26,7 +26,7 @@ jobs:
       - name: Set up Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 5.0.7
+          version: 6.0.4
           actions-cache-folder: emsdk-cache
 
       - name: Force static-lib rebuild if the build script or portable-math changed
@@ -42,7 +42,7 @@ jobs:
         run: |
           BASE="${{ github.event.pull_request.base.sha }}"
           if [ -n "$BASE" ] && git cat-file -e "$BASE" 2>/dev/null \
-             && git diff --name-only "$BASE" HEAD | grep -qE '^(dist/|libraw\.wasm|libraw\.js|libs/|includes/)'; then
+             && git diff --name-only "$BASE" HEAD | grep -qE '^(dist/|libraw(-threaded)?\.(wasm|js)|libs/|includes/)'; then
             echo "::warning::This PR modifies built artifacts (dist/, libraw.wasm, …). You don't need to — CI rebuilds and commits them on merge."
           fi
 

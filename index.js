@@ -1,6 +1,34 @@
+const MAX_THREADS = 16;
+
+// `threads` option -> thread count to ask the multi-threaded build for.
+function threadsOption(threads) {
+	if (threads === 'auto') {
+		return Math.min(globalThis.navigator?.hardwareConcurrency || 1, 8);
+	}
+	if (typeof threads !== 'number' || !Number.isFinite(threads)) {
+		throw new TypeError(`LibRaw: threads must be a number or 'auto' (got ${String(threads)})`);
+	}
+	return Math.min(Math.max(1, Math.floor(threads)), MAX_THREADS);
+}
+
 export default class LibRaw {
-	constructor() {
-		this.worker = new Worker(new URL('./worker.js', import.meta.url), {type:"module"});
+	/**
+	 * What this version of the package supports, for feature detection.
+	 */
+	static features = Object.freeze({threads: true, maxThreads: MAX_THREADS});
+
+	/**
+	 * @param {{threads?: number|'auto'}} [options] Passing `threads` selects the
+	 *   multi-threaded build (see readme): up to that many threads when the page
+	 *   is cross-origin isolated, one thread otherwise. Without it, the
+	 *   single-threaded build is used, as before.
+	 */
+	constructor(options) {
+		const threaded = options?.threads !== undefined && options?.threads !== null;
+		const threads = threaded ? threadsOption(options.threads) : 1;
+		this.worker = threaded
+			? new Worker(new URL('./worker-threaded.js', import.meta.url), {type:"module"})
+			: new Worker(new URL('./worker.js', import.meta.url), {type:"module"});
 		this.pending = new Map();      // id -> { resolve, reject }
 		this.nextId = 0;
 		this.tail = Promise.resolve(); // serializes calls on this (stateful) instance
@@ -17,6 +45,20 @@ export default class LibRaw {
 				slot.resolve(data?.out);
 			}
 		};
+		if(threaded) {
+			// The thread pool is sized when the worker instantiates the module,
+			// so this is the first call. If it fails, the next call reports it.
+			this.runFn('configure', {threads}).catch(()=>{});
+		}
+	}
+
+	/**
+	 * Which build this instance runs and how many threads it decodes with:
+	 * `{ threaded, crossOriginIsolated, poolSize, threads }`, as seen from the
+	 * worker.
+	 */
+	async runtimeInfo() {
+		return await this.runFn('runtimeInfo');
 	}
 
 	/**
