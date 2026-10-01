@@ -720,14 +720,71 @@ export type LibRawThumbnailData = ThumbnailImageData;
 export type LibRawOptions = LibRawSettings;
 
 /**
+ * Options for a decoder instance.
+ */
+export interface LibRawInstanceOptions {
+  /**
+   * Use the multi-threaded build with up to this many threads (at most
+   * {@link LibRawFeatures.maxThreads}), or `'auto'` for
+   * `min(navigator.hardwareConcurrency, 8)`. Threads need a cross-origin isolated
+   * page with `SharedArrayBuffer`; elsewhere the same build decodes on one
+   * thread. The decoded pixels are identical whatever the thread count, and
+   * identical to the single-threaded build's, except with wavelet denoising
+   * (`threshold` > 0), where LibRaw's OpenMP code path differs from its
+   * single-threaded one by a few pixels. Omit it to use the single-threaded
+   * build.
+   */
+  threads?: number | 'auto';
+}
+
+/**
+ * What the installed package supports (absent in versions without these features).
+ */
+export interface LibRawFeatures {
+  /** The package ships the multi-threaded build (`new LibRaw({ threads })`). */
+  threads: boolean;
+  /** Largest `threads` value an instance uses. */
+  maxThreads: number;
+}
+
+/**
+ * How an instance decodes, as reported by its worker.
+ */
+export interface LibRawRuntimeInfo {
+  /** `true` for the multi-threaded build. */
+  threaded: boolean;
+  /** Whether the instance's worker is cross-origin isolated. */
+  crossOriginIsolated: boolean;
+  /** Pthread workers started for this instance. */
+  poolSize: number;
+  /** Threads LibRaw's parallel regions use. */
+  threads: number;
+}
+
+/**
  * LibRaw-Wasm decoder.
  *
  * The runtime is asynchronous: construct an instance, open a RAW buffer, then read
  * metadata or decoded image data.
  */
 export default class LibRaw {
-  /** Create a decoder instance. */
-  constructor();
+  /** What this version of the package supports, for feature detection. */
+  static readonly features: LibRawFeatures;
+
+  /**
+   * Create a decoder instance.
+   *
+   * If the worker (or one of its pool workers) cannot load, every call on the
+   * instance rejects; `await raw.runtimeInfo()` checks this up front.
+   *
+   * @param options pass `threads` to use the multi-threaded build.
+   */
+  constructor(options?: LibRawInstanceOptions);
+
+  /**
+   * Report which build the instance runs and how many threads it uses.
+   */
+  runtimeInfo(): Promise<LibRawRuntimeInfo>;
 
   /**
    * Open and decode a RAW buffer.

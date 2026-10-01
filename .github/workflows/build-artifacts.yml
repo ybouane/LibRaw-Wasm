@@ -15,14 +15,17 @@ on:
     paths:
       - 'libraw_wrapper.cpp'
       - 'compileLibraw.sh'
+      - 'portable-math/**'
       - 'build.js'
       - 'index.js'
       - 'worker.js'
+      - 'worker-threaded.js'
+      - 'worker-core.js'
       - 'index.d.ts'
   workflow_dispatch:
     inputs:
       force_libs:
-        description: 'Force rebuild of the LCMS/LibRaw static libraries'
+        description: 'Force rebuild of the LCMS/LibRaw/portable-math static libraries'
         type: boolean
         default: false
 
@@ -51,7 +54,7 @@ jobs:
       - name: Set up Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 5.0.7
+          version: 6.0.4
           actions-cache-folder: emsdk-cache
 
       - name: Decide whether to rebuild static libs
@@ -61,8 +64,8 @@ jobs:
           fi
           BEFORE="${{ github.event.before }}"
           if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE" 2>/dev/null \
-             && git diff --name-only "$BEFORE" "${{ github.sha }}" | grep -qx 'compileLibraw.sh'; then
-            echo "compileLibraw.sh changed -> forcing LCMS/LibRaw rebuild"
+             && git diff --name-only "$BEFORE" "${{ github.sha }}" | grep -qE '^(compileLibraw\.sh|portable-math/)'; then
+            echo "compileLibraw.sh or portable-math/ changed -> forcing static-lib rebuild"
             echo "FORCE_LIBS=1" >> "$GITHUB_ENV"
           fi
 
@@ -84,7 +87,7 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dist libraw.wasm libraw.js libs includes
+          git add dist libraw.wasm libraw.js libraw-threaded.wasm libraw-threaded.js libs includes
           if git diff --cached --quiet; then
             echo "No artifact changes to commit."
           else
