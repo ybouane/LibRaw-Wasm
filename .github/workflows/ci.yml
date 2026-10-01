@@ -29,12 +29,12 @@ jobs:
           version: 5.0.7
           actions-cache-folder: emsdk-cache
 
-      - name: Force static-lib rebuild if the build script changed
+      - name: Force static-lib rebuild if the build script or portable-math changed
         run: |
           BASE="${{ github.event.pull_request.base.sha }}"
           if [ -n "$BASE" ] && git cat-file -e "$BASE" 2>/dev/null \
-             && git diff --name-only "$BASE" HEAD | grep -qx 'compileLibraw.sh'; then
-            echo "compileLibraw.sh changed -> forcing LCMS/LibRaw rebuild"
+             && git diff --name-only "$BASE" HEAD | grep -qE '^(compileLibraw\.sh|portable-math/)'; then
+            echo "compileLibraw.sh or portable-math/ changed -> forcing static-lib rebuild"
             echo "FORCE_LIBS=1" >> "$GITHUB_ENV"
           fi
 

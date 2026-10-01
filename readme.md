@@ -94,12 +94,19 @@ console.log('Raw sensor data:', rawImageData); // { raw_width, raw_height, width
 ```
 
 
+# Deterministic output
+LibRaw is compiled with IEEE-strict floating point, so for a given LibRaw version and settings LibRaw's own processing gives the same pixels whatever the Emscripten version or the machine that built the package (checked: the wasm build matches native arm64 and x86_64 clang builds of the same sources).
+- No `-ffast-math` (it lets the compiler reorder arithmetic and assume there are no NaNs or infinities) and no fused multiply-add contraction (`-ffp-contract=off`).
+- LibRaw's calls to `pow`, `powf`, `exp`, `log`, `logf` and `cos` (its gamma curve, the CIELab table AHD uses, and a few others) go to [unmodified copies of musl's implementations](portable-math/README.md) instead of the toolchain's libm, so neither a libm update nor the compiler's folding or rewriting of those calls changes the result.
+- Two optional parts still come from the toolchain: colour management with `cameraProfile`/`outputProfile` (LCMS2 uses Emscripten's libm) and lossy DNG decoding (Emscripten's libjpeg port).
+- Deflate-compressed DNGs are not supported (`--disable-zlib`), as in earlier versions. This is now pinned, so that a build does not depend on what the build machine's Emscripten cache contains.
+
 # Additional Notes
 - **Performance:** Decoding large RAW files in the browser can be CPU-intensive.
 - **Memory:** WebAssembly modules can allocate a significant amount of memory. Check your environment’s limits if you work with very large files.
 
 ## Local development
- - If you're making changes in the CPP wrapper, launch `compileLibraw.sh` (or `npm run compile`). It builds the LCMS + LibRaw static libs once into `libs/`/`includes/` and reuses them on subsequent runs; set `FORCE_LIBS=1` to rebuild them (e.g. after changing pinned versions).
+ - If you're making changes in the CPP wrapper, launch `compileLibraw.sh` (or `npm run compile`). It builds the LCMS, LibRaw and portable-math static libs once into `libs/`/`includes/` and reuses them on subsequent runs; set `FORCE_LIBS=1` to rebuild them (e.g. after changing pinned versions or `portable-math/`).
  - If you're launching it on MacOS, make sure that emscripten is installed (e.g. `brew install emscripten`) + build dependencies are insalled (e.g. `brew install autoconf automake libtool`). The pinned toolchain is Emscripten 5.0.7.
  - Tests: `npm test` runs the fast worker reply-routing unit test; `npm run test:integration` decodes `example-sony.ARW` in headless Chromium (run `npx playwright install chromium` first).
 

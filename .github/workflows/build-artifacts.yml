@@ -15,6 +15,7 @@ on:
     paths:
       - 'libraw_wrapper.cpp'
       - 'compileLibraw.sh'
+      - 'portable-math/**'
       - 'build.js'
       - 'index.js'
       - 'worker.js'
@@ -22,7 +23,7 @@ on:
   workflow_dispatch:
     inputs:
       force_libs:
-        description: 'Force rebuild of the LCMS/LibRaw static libraries'
+        description: 'Force rebuild of the LCMS/LibRaw/portable-math static libraries'
         type: boolean
         default: false
 
@@ -61,8 +62,8 @@ jobs:
           fi
           BEFORE="${{ github.event.before }}"
           if [ -n "$BEFORE" ] && git cat-file -e "$BEFORE" 2>/dev/null \
-             && git diff --name-only "$BEFORE" "${{ github.sha }}" | grep -qx 'compileLibraw.sh'; then
-            echo "compileLibraw.sh changed -> forcing LCMS/LibRaw rebuild"
+             && git diff --name-only "$BEFORE" "${{ github.sha }}" | grep -qE '^(compileLibraw\.sh|portable-math/)'; then
+            echo "compileLibraw.sh or portable-math/ changed -> forcing static-lib rebuild"
             echo "FORCE_LIBS=1" >> "$GITHUB_ENV"
           fi
 
