@@ -110,6 +110,11 @@ raw.dispose(); // also stops the instance's thread pool
 - **Memory.** The multi-threaded build can grow to 4 GB (the single-threaded build: 2 GB), which should be enough for files of about 100 MP (not tested yet).
 - **Same pixels.** Both builds decode a file to exactly the same image, whatever the thread count (see below), with one exception: with wavelet denoising (`threshold` > 0), LibRaw's OpenMP version of `wavelet_denoise()` does part of its arithmetic in double instead of float, so the multi-threaded build differs there from the single-threaded one by a few pixels (it is still the same at every thread count).
 - **Feature detection.** `LibRaw.features?.threads` is `true` in versions that ship the multi-threaded build (older versions ignore the constructor argument).
+- **If the worker cannot load.** When the worker, or one of its pool workers, fails to load (a blocked or missing script, a wrong MIME type), every call on the instance rejects instead of hanging. `await raw.runtimeInfo()` is the check to make up front; to fall back:
+  ```javascript
+  let raw = new LibRaw({ threads: 4 });
+  try { await raw.runtimeInfo(); } catch (err) { raw.dispose(); raw = new LibRaw(); }
+  ```
 - **Bundlers.** The worker and its pool workers are created with `new Worker(new URL(..., import.meta.url))`, which Vite and webpack follow. Both builds are referenced statically, so a bundle contains the multi-threaded worker, its glue and its ~1.6 MB wasm even when `threads` is never passed; they are only fetched when it is. The two builds' pool workers have different names (`em-pthread` and `em-pthread-mt`), so webpack keeps them in separate chunks.
 
 # Deterministic output

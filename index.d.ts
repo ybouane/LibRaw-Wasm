@@ -774,6 +774,9 @@ export default class LibRaw {
   /**
    * Create a decoder instance.
    *
+   * If the worker (or one of its pool workers) cannot load, every call on the
+   * instance rejects; `await raw.runtimeInfo()` checks this up front.
+   *
    * @param options pass `threads` to use the multi-threaded build.
    */
   constructor(options?: LibRawInstanceOptions);
