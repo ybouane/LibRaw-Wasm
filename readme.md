@@ -1,3 +1,40 @@
+<h1 align="center">⚠️ Please switch to FlashRaw</h1>
+
+<p align="center">
+  <a href="https://flashraw.ybouane.com"><img src="https://raw.githubusercontent.com/ybouane/flashraw/main/branding/readme-banner.png" alt="FlashRaw: the fast, safe camera RAW decoder" width="100%"></a>
+</p>
+
+<h3 align="center">I strongly recommend <a href="https://flashraw.ybouane.com">FlashRaw</a> over LibRaw-Wasm, for new projects and existing ones.</h3>
+
+> [!IMPORTANT]
+> **FlashRaw is the modern successor to this library.** It is a RAW decoder I wrote from scratch in Rust, and it runs in the browser (WebAssembly) just like LibRaw-Wasm does, with a nearly identical workflow: open a file, read the metadata, get the pixels.
+>
+> - **⚡ Much faster.** About **8.8× to 15× faster than LibRaw** from RAW to RGB (median over 62 popular cameras, same machine). In the browser it decodes a 17 MP Canon CR3 in about 100 ms on a modern desktop. Benchmarks, method and the cases where it is *not* the fastest: [docs/benchmarks.md](https://github.com/ybouane/flashraw/blob/main/docs/benchmarks.md).
+> - **🛡️ Safer.** Written in memory-safe Rust with bounds-checked parsing, configurable limits for untrusted files, and fuzz-tested decoders. LibRaw is C++ code that parses complicated, untrusted binary formats.
+> - **🧵 Built for the web, with threading.** A multithreaded WebAssembly build (shared-memory threads, with a single-thread SIMD fallback when the page is not cross-origin isolated) that keeps the decode off the main thread and uses every core. The decoder is about 750 KiB compressed.
+> - **📷 More formats.** About 40 RAW formats, including some LibRaw's default build does not decode, such as JPEG XL DNG and GoPro GPR.
+> - **🎨 More modern.** Colour management (sRGB, Display P3, Adobe RGB, ProPhoto, Rec. 2020, or any ICC profile), a WebGL2 and GPU-friendly output, region and tile decoding, embedded previews in milliseconds, and typed TypeScript APIs. It is also available for Rust, C, C++ and Python.
+>
+> **Try it in your browser, with your own RAW file: [flashraw.ybouane.com](https://flashraw.ybouane.com)**
+
+```bash
+npm install flashraw
+```
+
+```javascript
+import { FlashRaw } from 'flashraw';
+
+const raw = await FlashRaw.open(new Uint8Array(fileBuffer));
+console.log(raw.metadata.camera.name, raw.metadata.width, raw.metadata.height);
+const frame = await raw.decode({ output: 'rgba8' });   // { width, height, data }
+```
+
+**[Website and live demo](https://flashraw.ybouane.com)** · **[FlashRaw on GitHub](https://github.com/ybouane/flashraw)** · **[npm](https://www.npmjs.com/package/flashraw)** · **[Docs](https://github.com/ybouane/flashraw/tree/main/docs)**
+
+LibRaw-Wasm stays available below for anyone who needs LibRaw specifically.
+
+---
+
 <sub>*Follow me on X [@ybouane](https://x.com/ybouane) — I'm building in public.*</sub>
 # LibRaw-Wasm
 A WebAssembly build of LibRaw, powered by Emscripten and leveraging Web Workers. This lets you decode and process RAW image files directly in the browser or in a Node.js environment supporting WebAssembly. With LibRaw-Wasm, you can extract metadata and obtain decoded image data from formats such as CR2, NEF, ARW, DNG, and more.
